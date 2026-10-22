@@ -1,0 +1,706 @@
+<?php
+
+require __DIR__.'/config.php';
+ini_set('display_errors','0');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: no-referrer');
+header('Cache-Control: no-store');
+$secure=!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS']!=='off';
+session_set_cookie_params(['httponly'=>true,'samesite'=>'Strict','secure'=>$secure]);
+session_start();
+try {
+    initdb();
+}
+catch(Throwable $e) {
+    http_response_code(500);
+    exit('Erro de banco: confira permissões em /var/lib/portaria.');
+}
+$pagina=(string)($_GET['pagina']??'terminal');
+if(!in_array($pagina,['terminal','cadastro','editar','movimentacoes'],true))$pagina='terminal';
+if(isset($_GET['foto'])) {
+    // Restricted to authenticated session; access control for demo only
+    $name=(string)$_GET['foto'];
+    if(!preg_match('/^[a-f0-9]{32}\.jpg$/D',$name)) {
+        http_response_code(404);
+        exit;
+    }
+    if(!isset($_SESSION['admin']) && !isset($_SESSION['terminal'])) {
+        http_response_code(403);
+        exit;
+    }
+    $p=PHOTO_DIR.'/'.$name;
+    if(!is_file($p)) {
+        http_response_code(404);
+        exit;
+    }
+    header('Content-Type: image/jpeg');
+    readfile($p);
+    exit;
+}
+// Educational prototype: separate terminal password from admin password.
+function loggedAdmin():bool {
+    return !empty($_SESSION['admin']);
+}
+function loggedTerminal():bool {
+    return true;
+}
+$adminHashFile=DATA_DIR.'/admin.hash';
+$terminalHashFile=DATA_DIR.'/terminal.hash';
+if($_SERVER['REQUEST_METHOD']==='POST') {
+    try {
+        checkcsrf();
+        $action=(string)($_POST['action']??'');
+        if($action==='setup') {
+            if(is_file($adminHashFile)||is_file($terminalHashFile))throw new RuntimeException('Configuração já realizada.');
+            $a=(string)($_POST['senha_admin']??'');
+            $t=(string)($_POST['senha_terminal']??'');
+            if(strlen($a)<10||strlen($t)<8||hash_equals($a,$t))throw new RuntimeException('Use senhas diferentes: administrador ≥10 e terminal ≥8 caracteres.');
+            file_put_contents($adminHashFile,password_hash($a,PASSWORD_DEFAULT),LOCK_EX);
+            file_put_contents($terminalHashFile,password_hash($t,PASSWORD_DEFAULT),LOCK_EX);
+            chmod($adminHashFile,0640);
+            chmod($terminalHashFile,0640);
+            $_SESSION['admin']=true;
+            jsonout(['ok'=>true]);
+        }
+        if($action==='login') {
+            $perfil=(string)($_POST['perfil']??'terminal');
+            $senha=(string)($_POST['senha']??'');
+            $file=$perfil==='admin'?$adminHashFile:$terminalHashFile;
+            if(!is_file($file)||!password_verify($senha,trim(file_get_contents($file))))throw new RuntimeException('Senha inválida.');
+            session_regenerate_id(true);
+            $_SESSION[$perfil==='admin'?'admin':'terminal']=true;
+            jsonout(['ok'=>true]);
+        }
+        if($action==='logout') {
+            $_SESSION=[];
+            session_destroy();
+            jsonout(['ok'=>true]);
+        }
+        if($action==='cadastrar') {
+            if(!loggedAdmin())jsonout(['ok'=>false,'erro'=>'Acesso restrito'],403);
+            $nome=trim((string)($_POST['nome']??''));
+            if(mb_strlen($nome)<2||mb_strlen($nome)>120)throw new RuntimeException('Nome inválido.');
+            $bytes=imageFromData((string)($_POST['foto']??''));
+            $file=saveImage($bytes);
+            try {
+                $face=runPython(['validar',PHOTO_DIR.'/'.$file]);
+                if(!($face['ok']??false))throw new RuntimeException((string)($face['erro']??'Não foi possível detectar um rosto único.'));
+                $st=db()->prepare('INSERT INTO pessoas(nome,documento,empresa,foto,criado_em) VALUES (?,?,?,?,?)');
+                $st->execute([$nome,mb_substr(trim((string)($_POST['documento']??'')),0,40),mb_substr(trim((string)($_POST['empresa']??'')),0,120),$file,now()]);
+                jsonout(['ok'=>true,'id'=>(int)db()->lastInsertId()]);
+            }
+            catch(Throwable $e) {
+                @unlink(PHOTO_DIR.'/'.$file);
+                throw $e;
+            }
+        }
+        if($action==='editar_pessoa') {
+            if(!loggedAdmin())jsonout(['ok'=>false,'erro'=>'Acesso restrito'],403);
+            $id=filter_var($_POST['id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);
+            if(!$id)throw new RuntimeException('Cadastro invalido.');
+            $st=db()->prepare('SELECT id,foto FROM pessoas WHERE id=?');
+            $st->execute([$id]);
+            $current=$st->fetch(PDO::FETCH_ASSOC);
+            if(!$current)throw new RuntimeException('Pessoa nao encontrada.');
+            $nome=trim((string)($_POST['nome']??''));
+            if(mb_strlen($nome)<2||mb_strlen($nome)>120)throw new RuntimeException('Nome invalido.');
+            $doc=mb_substr(trim((string)($_POST['documento']??'')),0,40);
+            $emp=mb_substr(trim((string)($_POST['empresa']??'')),0,120);
+            $ativo=($_POST['ativo']??'0')==='1'?1:0;
+            $newfile=null;
+            try {
+                if(!empty($_POST['foto'])) {
+                    $newfile=saveImage(imageFromData((string)$_POST['foto']));
+                    $result=runPython(['validar',PHOTO_DIR.'/'.$newfile]);
+                    if(!($result['ok']??false))throw new RuntimeException((string)($result['erro']??'Foto sem rosto unico.'));
+                }
+                $st=db()->prepare('UPDATE pessoas SET nome=?,documento=?,empresa=?,ativo=?,foto=? WHERE id=?');
+                $st->execute([$nome,$doc,$emp,$ativo,$newfile??$current['foto'],$id]);
+                jsonout(['ok'=>true]);
+            }
+            catch(Throwable $e) {
+                if($newfile)@unlink(PHOTO_DIR.'/'.$newfile);
+                throw $e;
+            }
+        }
+        if($action==='excluir_pessoa') {
+            if(!loggedAdmin())jsonout(['ok'=>false,'erro'=>'Acesso restrito'],403);
+            $id=filter_var($_POST['id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);
+            if(!$id)throw new RuntimeException('Cadastro invalido.');
+            $db=db();
+            $db->exec('BEGIN IMMEDIATE TRANSACTION');
+            try {
+                $st=$db->prepare('SELECT id,foto FROM pessoas WHERE id=?');
+                $st->execute([$id]);
+                $pessoa=$st->fetch(PDO::FETCH_ASSOC);
+                if(!$pessoa)throw new RuntimeException('Pessoa nao encontrada.');
+                $st=$db->prepare('SELECT COUNT(*) FROM presencas WHERE pessoa_id=?');
+                $st->execute([$id]);
+                $total=(int)$st->fetchColumn();
+                if($total>0)throw new RuntimeException('Exclusao bloqueada: esta pessoa possui '.$total.' movimentacao(oes). Use Inativar.');
+                $st=$db->prepare('DELETE FROM pessoas WHERE id=? AND NOT EXISTS (SELECT 1 FROM presencas WHERE pessoa_id=?)');
+                $st->execute([$id,$id]);
+                if($st->rowCount()!==1)throw new RuntimeException('Exclusao nao autorizada. Verifique movimentacoes.');
+                $db->commit();
+                if(isset($_SESSION['pending']['id']) && (int)$_SESSION['pending']['id']===$id)unset($_SESSION['pending']);
+                // Somente remove a foto depois de confirmar a exclusao do cadastro.
+                // Se estiver compartilhada com outro cadastro, preserva o arquivo.
+                $check=$db->prepare('SELECT COUNT(*) FROM pessoas WHERE foto=?');
+                $check->execute([$pessoa['foto']]);
+                if((int)$check->fetchColumn()===0 && preg_match('/^[a-f0-9]{32}\.jpg$/D',(string)$pessoa['foto'])) {
+                    @unlink(PHOTO_DIR.'/'.$pessoa['foto']);
+                }
+                jsonout(['ok'=>true,'mensagem'=>'Cadastro excluido.']);
+            }
+            catch(Throwable $e) {
+                if($db->inTransaction())$db->rollBack();
+                throw $e;
+            }
+        }
+        if($action==='identificar') {
+            if(!loggedTerminal())jsonout(['ok'=>false,'erro'=>'Acesso restrito'],403);
+            $bytes=imageFromData((string)($_POST['foto']??''));
+            $file=saveImage($bytes);
+            $st=db()->query('SELECT id,foto FROM pessoas WHERE ativo=1 ORDER BY id');
+            $arr=[];
+            foreach($st as $p)$arr[]=['id'=>(int)$p['id'],'foto'=>PHOTO_DIR.'/'.$p['foto']];
+            $result=runPython(['identificar',PHOTO_DIR.'/'.$file,json_encode($arr)]);
+            $status=(string)($result['status']??'erro');
+            db()->prepare('INSERT INTO tentativas(status,observacao,criado_em) VALUES (?,?,?)')->execute([$status,mb_substr((string)($result['motivo']??''),0,255),now()]);
+            if($status==='correspondencia') {
+                $person=db()->prepare('SELECT id,nome,empresa,foto FROM pessoas WHERE id=? AND ativo=1');
+                $person->execute([(int)$result['id']]);
+                $row=$person->fetch(PDO::FETCH_ASSOC);
+                if($row) {
+                    $token=bin2hex(random_bytes(20));
+                    $_SESSION['pending']=['token'=>$token,'id'=>(int)$row['id'],'capture'=>$file,'distancia'=>(float)$result['distancia'],'at'=>time()];
+                    jsonout(['ok'=>true,'status'=>$status,'pessoa'=>$row,'token'=>$token,'distancia'=>$result['distancia']]);
+                }
+            }
+            @unlink(PHOTO_DIR.'/'.$file);
+            jsonout(['ok'=>true,'status'=>$status,'motivo'=>$result['motivo']??'Não identificado']);
+        }
+        if($action==='presenca') {
+            if(!loggedTerminal())jsonout(['ok'=>false,'erro'=>'Acesso restrito'],403);
+            $p=$_SESSION['pending']??null;
+            if(!$p||!hash_equals($p['token'],(string)($_POST['token']??''))||time()-$p['at']>120)throw new RuntimeException('Identificação expirada. Faça nova foto.');
+            $tipo=(string)($_POST['tipo']??'');
+            if(!in_array($tipo,['ENTRADA','SAIDA'],true))throw new RuntimeException('Tipo inválido.');
+            db()->prepare('INSERT INTO presencas(pessoa_id,tipo,foto_captura,distancia,criado_em) VALUES(?,?,?,?,?)')->execute([$p['id'],$tipo,$p['capture'],$p['distancia'],now()]);
+            unset($_SESSION['pending']);
+            jsonout(['ok'=>true]);
+        }
+        throw new RuntimeException('Ação inválida.');
+    }
+    catch(Throwable $e) {
+        jsonout(['ok'=>false,'erro'=>$e->getMessage()],400);
+    }
+}
+$setup=!is_file($adminHashFile)||!is_file($terminalHashFile);
+$authorized=$pagina==='terminal'?loggedTerminal():loggedAdmin();
+$cadastros=$pagina==='editar'&&loggedAdmin()?db()->query('SELECT id,nome,documento,empresa,ativo,foto FROM pessoas ORDER BY nome COLLATE NOCASE')->fetchAll(PDO::FETCH_ASSOC):[];
+$pessoas=$pagina==='movimentacoes'&&loggedAdmin()?db()->query('SELECT pr.criado_em,pr.tipo,p.nome,p.empresa,pr.foto_captura FROM presencas pr JOIN pessoas p ON p.id=pr.pessoa_id ORDER BY pr.id DESC LIMIT 100')->fetchAll(PDO::FETCH_ASSOC):[];
+?>
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portaria Facial</title>
+<style>
+:root {
+    font:16px system-ui,Arial;
+    background:#0d1321;
+    color:#f1f5fc
+}* {
+    box-sizing:border-box
+}body {
+    margin:0;
+    min-height:100vh
+}.wrap {
+    max-width:900px;
+    margin:auto;
+    padding:22px
+}.kiosk {
+    max-width:540px;
+    min-height:95vh;
+    display:flex;
+    flex-direction:column;
+    justify-content:center
+}h1 {
+    font-size:clamp(1.7rem,4vw,2.5rem);
+    margin:0 0 15px
+}p {
+    color:#bac9dc
+}.card {
+    background:#192337;
+    border:1px solid #34445d;
+    border-radius:16px;
+    padding:22px;
+    margin:16px 0
+}button,a.btn {
+    background:#2786f7;
+    color:white;
+    border:0;
+    padding:15px 20px;
+    border-radius:11px;
+    cursor:pointer;
+    font-size:1rem;
+    font-weight:700
+}button.secondary,a.btn.secondary {
+    background:#34445d
+}button:disabled {
+    opacity:.45
+}input {
+    width:100%;
+    padding:13px;
+    border:1px solid #566a86;
+    background:#0e182a;
+    color:white;
+    border-radius:9px;
+    font-size:1rem;
+    margin:6px 0 14px
+}label {
+    display:block
+}video,canvas,.preview {
+    max-width:100%;
+    width:100%;
+    border-radius:12px;
+    background:#090e17
+}video {
+    transform:scaleX(-1)
+}.hidden {
+    display:none!important
+}.msg {
+    margin:12px 0;
+    color:#ffda89
+}.ok {
+    color:#8af0ac
+}.nav {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin:0 0 22px
+}.nav a {
+    color:#d5e6ff;
+    text-decoration:none;
+    padding:11px;
+    background:#2a3952;
+    border-radius:8px
+}table {
+    border-collapse:collapse;
+    width:100%
+}td,th {
+    padding:10px;
+    border-bottom:1px solid #39465c;
+    text-align:left
+}.small {
+    font-size:.85rem
+}.actions {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap
+}.head {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px
+}.head button {
+    padding:9px
+}.facebox {
+    border:3px dashed #7eaef5;
+    border-radius:45%;
+    position:absolute;
+    left:25%;
+    top:15%;
+    width:50%;
+    height:65%;
+    pointer-events:none
+}.cam {
+    position:relative
+}
+</style>
+<link rel="manifest" href="/portaria/manifest.webmanifest">
+<meta name="theme-color" content="#101820">
+<link rel="apple-touch-icon" href="/portaria/icon-192.png">
+</head>
+<body>
+<main class="wrap <?= $pagina==='terminal'?'kiosk':'' ?>">
+<?php if(!$setup&&$authorized&&$pagina!=='terminal'):?>
+<nav class="nav">
+<a href="?pagina=cadastro">Cadastro</a>
+<a href="?pagina=editar">Editar cadastros</a>
+<a href="?pagina=movimentacoes">Movimentações</a>
+<a href="?pagina=terminal">Terminal</a>
+</nav>
+<?php endif;?>
+<?php if($setup):?>
+<h1>Configuração inicial</h1>
+<section class="card">
+<p>Defina senhas diferentes para administração e terminal. Este cadastro deve ser realizado no computador do administrador.</p>
+<form id="setup">
+<input type="hidden" name="action" value="setup">
+<label>Senha administrador</label>
+<input type="password" name="senha_admin" minlength="10" required>
+<label>Senha terminal</label>
+<input type="password" name="senha_terminal" minlength="8" required>
+<button>Configurar</button>
+</form>
+</section>
+<?php elseif(!$authorized):?>
+<h1>
+<?= $pagina==='terminal'?'Terminal de presença':'Administração' ?>
+</h1>
+<section class="card">
+<form id="login">
+<input type="hidden" name="action" value="login">
+<input type="hidden" name="perfil" value="<?= $pagina==='terminal'?'terminal':'admin' ?>">
+<label>Senha de acesso</label>
+<input type="password" name="senha" required>
+<button>Entrar</button>
+</form>
+</section>
+<?php elseif($pagina==='terminal'):?>
+<h1 style="text-align:center">Registro de presença</h1>
+<p style="text-align:center">Posicione o rosto na câmera para capturar automaticamente.</p>
+<section class="card" style="text-align:center">
+<div class="cam hidden" id="cam">
+<video id="video" autoplay muted playsinline>
+</video>
+<div class="facebox">
+</div>
+</div>
+<canvas id="canvas" class="hidden">
+</canvas>
+<button id="openCam" type="button">Abrir câmera</button>
+<button id="capture" type="button" class="secondary hidden">Fotografar manualmente</button>
+<p id="status" aria-live="polite">Aguardando câmera.</p>
+<div id="result" class="hidden">
+</div>
+</section>
+<?php elseif($pagina==='cadastro'):?>
+<div class="head">
+<h1>Cadastro de pessoas</h1>
+<button class="secondary" id="logout">Sair</button>
+</div>
+<section class="card">
+<form id="cadastro">
+<input type="hidden" name="action" value="cadastrar">
+<label>Nome</label>
+<input name="nome" maxlength="120" required>
+<label>Documento ou matrícula (opcional)</label>
+<input name="documento" maxlength="40">
+<label>Empresa ou turma (opcional)</label>
+<input name="empresa" maxlength="120">
+<label>Foto de referência</label>
+<div class="cam">
+<video id="video" autoplay playsinline muted>
+</video>
+</div>
+<canvas id="canvas" class="hidden">
+</canvas>
+<div class="actions">
+<button type="button" id="openCam">Abrir câmera</button>
+<button type="button" id="capture" class="secondary">Capturar foto</button>
+</div>
+<p id="status" aria-live="polite">Capture uma foto bem iluminada com apenas um rosto.</p>
+<img id="preview" class="preview hidden" alt="Foto cadastrada">
+<button type="submit">Salvar cadastro</button>
+</form>
+</section>
+<?php elseif($pagina==='editar'):?>
+<div class="head">
+<h1>Editar cadastros</h1>
+<button class="secondary" id="logout">Sair</button>
+</div>
+<section class="card">
+<label>Pesquisar nome, documento ou empresa</label>
+<input id="searchPerson" type="search" placeholder="Digite para pesquisar">
+<div id="peopleList">
+</div>
+</section>
+<section class="card hidden" id="editPanel">
+<h2>Editar pessoa</h2>
+<form id="editPerson">
+<input type="hidden" name="action" value="editar_pessoa">
+<input type="hidden" name="id" id="personId">
+<label>Nome</label>
+<input name="nome" id="personName" maxlength="120" required>
+<label>Documento</label>
+<input name="documento" id="personDoc" maxlength="40">
+<label>Empresa / turma</label>
+<input name="empresa" id="personCompany" maxlength="120">
+<label>
+<input type="checkbox" id="personActive" name="ativo" value="1" style="width:auto"> Cadastro ativo</label>
+<p>Foto cadastrada</p>
+<img id="personPhoto" class="preview" style="max-width:230px" alt="Foto do cadastro">
+<p>Para substituir a foto, selecione uma imagem JPEG nítida com um único rosto. Não é obrigatório.</p>
+<input id="newPhoto" type="file" accept="image/jpeg" capture="user">
+<div class="actions">
+<button type="submit">Salvar alterações</button>
+<button type="button" class="secondary" id="cancelEdit">Cancelar</button>
+<button type="button" id="deletePerson" style="background:#b32632">Excluir cadastro</button>
+</div>
+</form>
+<p id="editStatus" aria-live="polite">
+</p>
+</section>
+<?php elseif($pagina==='movimentacoes'):?>
+<div class="head">
+<h1>Movimentações</h1>
+<button class="secondary" id="logout">Sair</button>
+</div>
+<section class="card">
+<table>
+<thead>
+<tr>
+<th>Data</th>
+<th>Pessoa</th>
+<th>Movimento</th>
+<th>Foto</th>
+</tr>
+</thead>
+<tbody>
+<?php foreach($pessoas as $row):?>
+<tr>
+<td>
+<?=h($row['criado_em'])?>
+</td>
+<td>
+<?=h($row['nome'])?>
+<br>
+<span class="small">
+<?=h($row['empresa'])?>
+</span>
+</td>
+<td>
+<?=h($row['tipo'])?>
+</td>
+<td>
+<a href="?foto=<?=rawurlencode($row['foto_captura'])?>" target="_blank" rel="noopener">Ver foto</a>
+</td>
+</tr>
+<?php endforeach;?>
+</tbody>
+</table>
+</section>
+<?php endif;?>
+<p id="error" class="msg" role="alert">
+</p>
+</main>
+<script>
+const token=<?=json_encode(csrf())?>;
+const page=<?=json_encode($pagina)?>;
+const $=id=>document.getElementById(id);
+async function post(data) {
+    const form=new FormData();
+    for(const [k,v] of Object.entries({...data,csrf:token}))form.append(k,v);
+    const res=await fetch(location.pathname,{method:'POST',body:form,credentials:'same-origin'});
+    const r=await res.json();
+    if(!r.ok)throw new Error(r.erro||'Falha inesperada');
+    return r
+}
+for(const id of ['setup','login'])if($(id))$(id).addEventListener('submit',async ev=>{ev.preventDefault();try{await post(Object.fromEntries(new FormData(ev.target)));location.reload()}catch(e){$('error').textContent=e.message}});
+if($('logout'))$('logout').onclick=async()=> {
+    await post({action:'logout'});
+    location.reload()
+};
+let stream=null,faceDetector=null,loopId=null,busy=false,photo=null,stable=0;
+function stopCam() {
+    if(loopId)clearInterval(loopId);
+    loopId=null;
+    if(stream)stream.getTracks().forEach(t=>t.stop());
+    stream=null
+}
+async function camera() {
+    try {
+        stopCam();
+        stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'user'},width:{ideal:640},height:{ideal:480}},audio:false});
+        $('video').srcObject=stream;
+        await $('video').play();
+        if($('cam'))$('cam').classList.remove('hidden');
+        $('capture').classList.remove('hidden');
+        $('status').textContent='Câmera aberta. Enquadre o rosto.';
+        if(page==='terminal')startAuto()
+    }
+    catch(e) {
+        $('status').textContent='Não foi possível abrir a câmera: '+e.message+' (necessário HTTPS no celular).'
+    }
+}
+if($('openCam'))$('openCam').onclick=camera;
+function photoData() {
+    const v=$('video'),c=$('canvas');
+    if(!v.videoWidth)throw new Error('Câmera ainda não está pronta.');
+    c.width=640;
+    c.height=Math.round(640*v.videoHeight/v.videoWidth);
+    c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+    return c.toDataURL('image/jpeg',.82)
+}
+if($('capture'))$('capture').onclick=()=>capture();
+async function capture() {
+    if(busy)return;
+    busy=true;
+    try {
+        photo=photoData();
+        stopCam();
+        if(page==='terminal') {
+            await identify(photo)
+        }
+        else {
+            $('preview').src=photo;
+            $('preview').classList.remove('hidden');
+            $('status').textContent='Foto capturada. Salve o cadastro.'
+        }
+    }
+    catch(e) {
+        $('status').textContent=e.message
+    }
+    finally {
+        busy=false
+    }
+}
+async function startAuto() {
+    if(!('FaceDetector' in window)) {
+        $('status').textContent='Detecção automática não disponível neste navegador. Use “Fotografar manualmente”.';
+        return
+    }
+    try {
+        faceDetector=new FaceDetector({fastMode:true,maxDetectedFaces:2})
+    }
+    catch(e) {
+        $('status').textContent='Use o botão manual.';
+        return
+    }
+    loopId=setInterval(async()=>{if(busy||!stream)return;try{const faces=await faceDetector.detect($('video'));if(faces.length===1){stable++;$('status').textContent='Rosto detectado: mantenha a posição…';if(stable>=3){stable=0;clearInterval(loopId);loopId=null;await capture()}}else{stable=0;$('status').textContent=faces.length>1?'Somente uma pessoa na imagem.':'Centralize o rosto na câmera.'}}catch(e){clearInterval(loopId);loopId=null;$('status').textContent='Detecção automática indisponível. Use o botão manual.'}},750)
+}
+async function identify(img) {
+    $('result').classList.add('hidden');
+    $('status').textContent='Comparando o rosto com os cadastros…';
+    try {
+        const r=await post({action:'identificar',foto:img});
+        if(r.status==='correspondencia') {
+            $('status').textContent='Pessoa identificada: '+r.pessoa.nome+'. Registrando entrada…';
+            await savePresence(r.token,'ENTRADA',r.pessoa.nome);
+        }
+        else {
+            $('status').textContent='Não identificado: '+(r.motivo||r.status);
+            retryButton()
+        }
+    }
+    catch(e) {
+        $('status').textContent='Erro: '+e.message;
+        retryButton()
+    }
+}
+function retryButton() {
+    const b=document.createElement('button');
+    b.textContent='Tentar novamente';
+    b.onclick=()=>location.reload();
+    $('result').replaceChildren(b);
+    $('result').classList.remove('hidden')
+}
+async function savePresence(tok,kind,nome='') {
+    try {
+        await post({action:'presenca',token:tok,tipo:kind});
+        $('status').textContent=kind+' registrada com sucesso! Pessoa: '+nome;
+        retryButton()
+    }
+    catch(e) {
+        $('status').textContent=e.message
+    }
+}
+const persons=<?=json_encode($cadastros,JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_INVALID_UTF8_SUBSTITUTE)?>;
+if($('peopleList')) {
+    const list=$('peopleList');
+    const q=$('searchPerson');
+    function renderPeople() {
+        const term=q.value.toLocaleLowerCase('pt-BR').trim();
+        list.replaceChildren();
+        for(const p of persons.filter(p=>[p.nome,p.documento,p.empresa].some(v=>(v||'').toLocaleLowerCase('pt-BR').includes(term)))) {
+            const r=document.createElement('div');
+            r.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #39465c';
+            const t=document.createElement('span');
+            t.textContent=p.nome+' — '+(p.documento||p.empresa||'Sem documento')+(Number(p.ativo)?' (ativo)':' (inativo)');
+            const b=document.createElement('button');
+            b.textContent='Editar';
+            b.type='button';
+            b.onclick=()=>edit(p);
+            r.append(t,b);
+            list.appendChild(r)
+        }
+    }
+    function edit(p) {
+        $('editPanel').classList.remove('hidden');
+        $('personId').value=p.id;
+        $('personName').value=p.nome;
+        $('personDoc').value=p.documento||'';
+        $('personCompany').value=p.empresa||'';
+        $('personActive').checked=Number(p.ativo)===1;
+        $('personPhoto').src='?foto='+encodeURIComponent(p.foto);
+        $('newPhoto').value='';
+        $('editStatus').textContent='';
+        $('editPanel').scrollIntoView({behavior:'smooth'})
+    }
+    q.oninput=renderPeople;
+    renderPeople();
+    $('cancelEdit').onclick=()=>$('editPanel').classList.add('hidden');
+    $('deletePerson').onclick=async()=> {
+        const id=$('personId').value;
+        const nome=$('personName').value;
+        if(!id)return;
+        if(!confirm('Excluir definitivamente o cadastro de "'+nome+'"?\n\nPermitido somente se NAO houver entrada ou saida registrada.'))return;
+        try {
+            await post({action:'excluir_pessoa',id});
+            $('editStatus').textContent='Cadastro excluido. Atualizando...';
+            setTimeout(()=>location.reload(),550);
+        }
+        catch(e) {
+            $('editStatus').textContent=e.message;
+        }
+    };
+    $('editPerson').onsubmit=async ev=> {
+        ev.preventDefault();
+        const form=ev.target;
+        const file=$('newPhoto').files[0];
+        let img='';
+        try {
+            if(file) {
+                if(file.type!=='image/jpeg')throw new Error('Use uma foto JPEG.');
+                if(file.size>3800000)throw new Error('Foto muito grande.');
+                img=await new Promise((resolve,reject)=>{const rd=new FileReader();rd.onload=()=>resolve(rd.result);rd.onerror=()=>reject(new Error('Falha ao ler foto'));rd.readAsDataURL(file)});
+            }
+            await post({action:'editar_pessoa',id:$('personId').value,nome:$('personName').value,documento:$('personDoc').value,empresa:$('personCompany').value,ativo:$('personActive').checked?'1':'0',foto:img});
+            $('editStatus').textContent='Alterações salvas. Atualizando…';
+            setTimeout(()=>location.reload(),600)
+        }
+        catch(e) {
+            $('editStatus').textContent=e.message
+        }
+    };
+}
+if($('cadastro'))$('cadastro').onsubmit=async ev=> {
+    ev.preventDefault();
+    if(!photo) {
+        $('status').textContent='Capture a foto antes de salvar.';
+        return
+    }
+    try {
+        const values=Object.fromEntries(new FormData(ev.target));
+        await post({...values,foto:photo});
+        $('status').textContent='Cadastro salvo!';
+        photo=null;
+        ev.target.reset();
+        $('preview').classList.add('hidden')
+    }
+    catch(e) {
+        $('status').textContent='Falha ao cadastrar: '+e.message
+    }
+};
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('/portaria/sw.js').catch(console.warn));
+}
+</script>
+</body>
+</html>

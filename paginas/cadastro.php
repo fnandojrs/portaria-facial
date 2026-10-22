@@ -16,9 +16,10 @@
 <label>Matrícula / Código (opcional)</label>
 <input name="matricula" maxlength="40">
 <label>Foto de referência</label>
-<div class="cam camera-cadastro">
+<div class="cam camera-cadastro" aria-label="Área de captura da foto">
 <video id="video" autoplay playsinline muted></video>
 <img id="preview" class="preview hidden" alt="Foto capturada">
+<div class="guia-rosto" id="guiaRosto" aria-hidden="true"></div>
 </div>
 <canvas id="canvas" class="hidden"></canvas>
 <div class="actions">

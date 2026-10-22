@@ -14,6 +14,7 @@ async function camera() {
         if(page==='cadastro') {
             $('video').classList.remove('hidden');
             $('preview').classList.add('hidden');
+            if($('guiaRosto'))$('guiaRosto').classList.remove('hidden');
         }
         if($('cam'))$('cam').classList.remove('hidden');
         $('capture').classList.remove('hidden');
@@ -47,6 +48,7 @@ async function capture() {
             $('preview').src=photo;
             $('video').classList.add('hidden');
             $('preview').classList.remove('hidden');
+            if($('guiaRosto'))$('guiaRosto').classList.add('hidden');
             $('status').textContent='Foto capturada. Salve o cadastro.'
         }
     }
