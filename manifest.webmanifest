@@ -1,0 +1,16 @@
+{
+  "id": "/portaria/?pagina=terminal",
+  "name": "Portaria Facial",
+  "short_name": "Portaria",
+  "description": "Terminal de registro de presenca",
+  "start_url": "/portaria/?pagina=terminal",
+  "scope": "/portaria/",
+  "display": "standalone",
+  "background_color": "#101820",
+  "theme_color": "#101820",
+  "lang": "pt-BR",
+  "icons": [
+    {"src": "/portaria/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "/portaria/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
