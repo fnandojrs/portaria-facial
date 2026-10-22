@@ -7,6 +7,7 @@ const PYTHON_BIN='/opt/portaria/venv/bin/python';
 const RECOGNIZER='/opt/portaria/reconhecer.py';
 const PY_TIMEOUT=35;
 date_default_timezone_set('America/Sao_Paulo');
+
 function db(): PDO {
     static $db=null;
     if ($db === null) {
@@ -16,11 +17,64 @@ function db(): PDO {
     }
     return $db;
 }
+
 function initdb(): void {
-    db()->exec('CREATE TABLE IF NOT EXISTS pessoas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, documento TEXT, empresa TEXT, ativo INTEGER NOT NULL DEFAULT 1, foto TEXT NOT NULL, criado_em TEXT NOT NULL);');
-    db()->exec('CREATE TABLE IF NOT EXISTS presencas (id INTEGER PRIMARY KEY AUTOINCREMENT, pessoa_id INTEGER NOT NULL REFERENCES pessoas(id), tipo TEXT NOT NULL CHECK(tipo IN (\'ENTRADA\',\'SAIDA\')), foto_captura TEXT NOT NULL, distancia REAL, criado_em TEXT NOT NULL);');
-    db()->exec('CREATE TABLE IF NOT EXISTS tentativas (id INTEGER PRIMARY KEY AUTOINCREMENT, status TEXT NOT NULL, observacao TEXT, criado_em TEXT NOT NULL);');
+    db()->exec("CREATE TABLE IF NOT EXISTS pessoas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome TEXT NOT NULL,
+        cpf TEXT NOT NULL UNIQUE CHECK(length(cpf)=11),
+        telefone TEXT NOT NULL CHECK(length(telefone) IN (10,11)),
+        empresa TEXT NOT NULL,
+        matricula TEXT,
+        ativo INTEGER NOT NULL DEFAULT 1,
+        foto TEXT NOT NULL,
+        criado_em TEXT NOT NULL
+    )");
+    db()->exec("CREATE TABLE IF NOT EXISTS presencas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pessoa_id INTEGER NOT NULL REFERENCES pessoas(id),
+        tipo TEXT NOT NULL CHECK(tipo IN ('ENTRADA','SAIDA')),
+        foto_captura TEXT NOT NULL,
+        distancia REAL,
+        criado_em TEXT NOT NULL
+    )");
+    db()->exec("CREATE TABLE IF NOT EXISTS tentativas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        status TEXT NOT NULL,
+        observacao TEXT,
+        criado_em TEXT NOT NULL
+    )");
+    db()->exec('CREATE INDEX IF NOT EXISTS idx_presencas_pessoa_data ON presencas(pessoa_id, criado_em)');
 }
+
+function apenasDigitos(string $value): string {
+    return preg_replace('/\D+/', '', $value) ?? '';
+}
+
+function cpfValido(string $cpf): bool {
+    if (strlen($cpf)!==11 || preg_match('/^(\d)\1{10}$/', $cpf))return false;
+    for($n=9;$n<=10;$n++) {
+        $soma=0;
+        for($i=0;$i<$n;$i++)$soma+=(int)$cpf[$i]*($n+1-$i);
+        $digito=($soma*10)%11;
+        if($digito===10)$digito=0;
+        if($digito!==(int)$cpf[$n])return false;
+    }
+    return true;
+}
+
+function validarCadastro(array $data): array {
+    $cpf=apenasDigitos((string)($data['cpf']??''));
+    $telefone=apenasDigitos((string)($data['telefone']??''));
+    $empresa=trim((string)($data['empresa']??''));
+    $matricula=trim((string)($data['matricula']??''));
+    if(!cpfValido($cpf))throw new RuntimeException('CPF inválido. Confira os números.');
+    if(!in_array(strlen($telefone),[10,11],true))throw new RuntimeException('Telefone deve ter 10 ou 11 dígitos com DDD.');
+    if($empresa===''||mb_strlen($empresa)>120)throw new RuntimeException('Informe uma empresa válida (até 120 caracteres).');
+    if(mb_strlen($matricula)>40)throw new RuntimeException('Matrícula muito longa (máximo 40 caracteres).');
+    return ['cpf'=>$cpf,'telefone'=>$telefone,'empresa'=>$empresa,'matricula'=>$matricula];
+}
+
 function now(): string {return date('Y-m-d H:i:s');}
 function h(?string $s): string{return htmlspecialchars($s??'',ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');}
 function csrf(): string {

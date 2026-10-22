@@ -1,0 +1,149 @@
+:root {
+    font:16px system-ui,Arial;
+    background:#0d1321;
+    color:#f1f5fc
+}* {
+    box-sizing:border-box
+}body {
+    margin:0;
+    min-height:100vh
+}.wrap {
+    max-width:900px;
+    margin:auto;
+    padding:22px
+}.kiosk {
+    max-width:540px;
+    min-height:95vh;
+    display:flex;
+    flex-direction:column;
+    justify-content:center
+}h1 {
+    font-size:clamp(1.7rem,4vw,2.5rem);
+    margin:0 0 15px
+}p {
+    color:#bac9dc
+}.card {
+    background:#192337;
+    border:1px solid #34445d;
+    border-radius:16px;
+    padding:22px;
+    margin:16px 0
+}button,a.btn {
+    background:#2786f7;
+    color:white;
+    border:0;
+    padding:15px 20px;
+    border-radius:11px;
+    cursor:pointer;
+    font-size:1rem;
+    font-weight:700
+}button.secondary,a.btn.secondary {
+    background:#34445d
+}button:disabled {
+    opacity:.45
+}input {
+    width:100%;
+    padding:13px;
+    border:1px solid #566a86;
+    background:#0e182a;
+    color:white;
+    border-radius:9px;
+    font-size:1rem;
+    margin:6px 0 14px
+}label {
+    display:block
+}video,canvas,.preview {
+    max-width:100%;
+    width:100%;
+    border-radius:12px;
+    background:#090e17
+}video {
+    transform:scaleX(-1)
+}.hidden {
+    display:none!important
+}.msg {
+    margin:12px 0;
+    color:#ffda89
+}.ok {
+    color:#8af0ac
+}.nav {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin:0 0 22px
+}.nav a {
+    color:#d5e6ff;
+    text-decoration:none;
+    padding:11px;
+    background:#2a3952;
+    border-radius:8px
+}table {
+    border-collapse:collapse;
+    width:100%
+}td,th {
+    padding:10px;
+    border-bottom:1px solid #39465c;
+    text-align:left
+}.small {
+    font-size:.85rem
+}.actions {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap
+}.head {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:12px
+}.head button {
+    padding:9px
+}.facebox {
+    border:3px dashed #7eaef5;
+    border-radius:45%;
+    position:absolute;
+    left:25%;
+    top:15%;
+    width:50%;
+    height:65%;
+    pointer-events:none
+}.cam {
+    position:relative
+}
+/* A câmera e a foto capturada ocupam o mesmo espaço no cadastro. */
+.camera-cadastro video,
+.camera-cadastro .preview {
+    display:block;
+    width:100%;
+    height:360px;
+    object-fit:cover;
+    border-radius:12px;
+    background:#090e17;
+}
+/* Janela de confirmação do terminal. */
+.confirm-overlay {
+    position:fixed;
+    inset:0;
+    z-index:1000;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:18px;
+    background:rgba(2,7,18,.82);
+}
+.confirm-box {
+    width:min(100%,420px);
+    padding:26px;
+    border-radius:18px;
+    border:1px solid #485a75;
+    background:#192337;
+    box-shadow:0 20px 60px rgba(0,0,0,.45);
+    text-align:center;
+}
+.confirm-box h2 { margin:0 0 18px; font-size:1.4rem; }
+.confirm-box .confirm-name { color:#f1f5fc; font-size:1.35rem; font-weight:700; overflow-wrap:anywhere; }
+.confirm-box .confirm-question { margin:22px 0 6px; font-size:1.15rem; color:#e8f0fa; }
+.confirm-box .confirm-type { font-size:2.2rem; font-weight:800; color:#8af0ac; margin-bottom:22px; }
+.confirm-box .confirm-type.saida { color:#ffc485; }
+.confirm-box .actions { justify-content:center; }
+.confirm-box .actions button { flex:1; min-width:110px; }
+.confirm-error { color:#ffda89; min-height:1.3em; }
