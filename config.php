@@ -26,6 +26,7 @@ function initdb(): void {
         telefone TEXT NOT NULL CHECK(length(telefone) IN (10,11)),
         empresa TEXT NOT NULL,
         matricula TEXT,
+        tipo_acesso TEXT NOT NULL DEFAULT 'Funcionario',
         ativo INTEGER NOT NULL DEFAULT 1,
         foto TEXT NOT NULL,
         criado_em TEXT NOT NULL
@@ -44,6 +45,11 @@ function initdb(): void {
         observacao TEXT,
         criado_em TEXT NOT NULL
     )");
+    // Migração segura: preserva cadastros e movimentações anteriores.
+    $colunas=db()->query('PRAGMA table_info(pessoas)')->fetchAll(PDO::FETCH_ASSOC);
+    if(!in_array('tipo_acesso',array_column($colunas,'name'),true)) {
+        db()->exec("ALTER TABLE pessoas ADD COLUMN tipo_acesso TEXT NOT NULL DEFAULT 'Funcionario'");
+    }
     db()->exec('CREATE INDEX IF NOT EXISTS idx_presencas_pessoa_data ON presencas(pessoa_id, criado_em)');
 }
 
@@ -72,7 +78,11 @@ function validarCadastro(array $data): array {
     if(!in_array(strlen($telefone),[10,11],true))throw new RuntimeException('Telefone deve ter 10 ou 11 dígitos com DDD.');
     if($empresa===''||mb_strlen($empresa)>120)throw new RuntimeException('Informe uma empresa válida (até 120 caracteres).');
     if(mb_strlen($matricula)>40)throw new RuntimeException('Matrícula muito longa (máximo 40 caracteres).');
-    return ['cpf'=>$cpf,'telefone'=>$telefone,'empresa'=>$empresa,'matricula'=>$matricula];
+    $tipo=(string)($data['tipo_acesso']??'');
+    if(!in_array($tipo,['Funcionario','Aluno','Professor','Visitante','Terceirizado'],true)) {
+        throw new RuntimeException('Selecione um tipo de acesso válido.');
+    }
+    return ['cpf'=>$cpf,'telefone'=>$telefone,'empresa'=>$empresa,'matricula'=>$matricula,'tipo_acesso'=>$tipo];
 }
 
 function now(): string {return date('Y-m-d H:i:s');}

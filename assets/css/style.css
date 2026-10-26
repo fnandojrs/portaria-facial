@@ -109,42 +109,15 @@
 }.cam {
     position:relative
 }
-/* Cadastro: uma única área alta, responsiva, para câmera e foto. */
-.camera-cadastro {
-    position: relative;
-    height: 560px;
-    max-height: 75vh;
-    min-height: 340px;
-    overflow: hidden;
-    border-radius: 14px;
-    background: #090e17;
-}
+/* A câmera e a foto capturada ocupam o mesmo espaço no cadastro. */
 .camera-cadastro video,
 .camera-cadastro .preview {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: 14px;
-}
-/* Guia oval somente enquanto a câmera está aberta. */
-.camera-cadastro .guia-rosto {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: min(52%, 260px);
-    height: min(64%, 350px);
-    transform: translate(-50%, -50%);
-    border: 3px dashed #7eaef5;
-    border-radius: 50%;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.13);
-    pointer-events: none;
-}
-@media (max-width: 600px) {
-    .camera-cadastro {
-        height: 440px;
-        min-height: 300px;
-    }
+    display:block;
+    width:100%;
+    height:360px;
+    object-fit:cover;
+    border-radius:12px;
+    background:#090e17;
 }
 /* Janela de confirmação do terminal. */
 .confirm-overlay {
@@ -174,3 +147,48 @@
 .confirm-box .actions { justify-content:center; }
 .confirm-box .actions button { flex:1; min-width:110px; }
 .confirm-error { color:#ffda89; min-height:1.3em; }
+
+#listaPanel .actions button {width:auto}
+#cadastroPanel, #editPanel {scroll-margin-top:16px}
+
+/* Ajuste visual dos filtros - Cadastro e Movimentações */
+.filter-grid {
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:14px 16px;
+    margin:14px 0 18px;
+}
+.filter-grid > div {min-width:0}
+.filter-grid label {display:block; margin-bottom:6px; font-weight:600; color:#d8e7fb}
+.filter-grid select,
+.filter-grid input,
+select#personType,
+select#tipo_acesso {
+    display:block;
+    width:100%;
+    min-width:0;
+    min-height:46px;
+    padding:11px 12px;
+    margin:0;
+    border:1px solid #566a86;
+    border-radius:9px;
+    background:#0e182a;
+    color:#f1f5fc;
+    font:inherit;
+    color-scheme:dark;
+}
+.filter-grid select:focus-visible,
+.filter-grid input:focus-visible,
+select#personType:focus-visible,
+select#tipo_acesso:focus-visible {
+    outline:2px solid #2786f7;
+    outline-offset:1px;
+}
+select#personType,select#tipo_acesso {margin:6px 0 14px}
+.filter-grid option,select#personType option,select#tipo_acesso option {background:#0e182a;color:#f1f5fc}
+.mov-form .actions {margin-top:12px}
+#peopleList {margin-top:14px}
+@media(max-width:620px){
+    .filter-grid {grid-template-columns:1fr;gap:12px}
+    .head h1 {font-size:1.65rem}
+}

@@ -1,18 +1,44 @@
 <?php
 // Ações executadas pelo dispatcher autenticado em actions.php.
+        if($action==='consultar_cpf') {
+            if(!loggedAdmin())jsonout(['ok'=>false,'erro'=>'Acesso restrito'],403);
+            $cpf=apenasDigitos((string)($_POST['cpf']??''));
+            if(!cpfValido($cpf))throw new RuntimeException('CPF inválido.');
+            $st=db()->prepare('SELECT id,nome,ativo FROM pessoas WHERE cpf=? LIMIT 1');
+            $st->execute([$cpf]);
+            $row=$st->fetch(PDO::FETCH_ASSOC);
+            jsonout(['ok'=>true,'existente'=>(bool)$row,'ativo'=>$row?(bool)$row['ativo']:false,'id'=>$row?(int)$row['id']:null,'nome'=>$row?$row['nome']:null]);
+        }
+        if($action==='reativar_pessoa') {
+            if(!loggedAdmin())jsonout(['ok'=>false,'erro'=>'Acesso restrito'],403);
+            $cpf=apenasDigitos((string)($_POST['cpf']??''));
+            if(!cpfValido($cpf))throw new RuntimeException('CPF inválido.');
+            // Apenas reativa o registro existente. Não cria nova pessoa.
+            $st=db()->prepare('UPDATE pessoas SET ativo=1 WHERE cpf=? AND ativo=0');
+            $st->execute([$cpf]);
+            if($st->rowCount()!==1)throw new RuntimeException('Cadastro não encontrado ou já ativo.');
+            jsonout(['ok'=>true]);
+        }
         if($action==='cadastrar') {
             if(!loggedAdmin())jsonout(['ok'=>false,'erro'=>'Acesso restrito'],403);
             $nome=trim((string)($_POST['nome']??''));
             if(mb_strlen($nome)<2||mb_strlen($nome)>120)throw new RuntimeException('Nome inválido.');
+            $dados=validarCadastro($_POST);
+            $verifica=db()->prepare('SELECT ativo FROM pessoas WHERE cpf=? LIMIT 1');
+            $verifica->execute([$dados['cpf']]);
+            $existente=$verifica->fetchColumn();
+            if($existente!==false) {
+                throw new RuntimeException((int)$existente===1 ? 'CLIENTE JA EXISTE' : 'Cliente já existe mas está desativado. Deseja liberar?');
+            }
             $bytes=imageFromData((string)($_POST['foto']??''));
             $file=saveImage($bytes);
             try {
                 $face=runPython(['validar',PHOTO_DIR.'/'.$file]);
                 if(!($face['ok']??false))throw new RuntimeException((string)($face['erro']??'Não foi possível detectar um rosto único.'));
                 $dados=validarCadastro($_POST);
-                $st=db()->prepare('INSERT INTO pessoas(nome,cpf,telefone,empresa,matricula,foto,criado_em) VALUES (?,?,?,?,?,?,?)');
+                $st=db()->prepare('INSERT INTO pessoas(nome,cpf,telefone,empresa,matricula,tipo_acesso,foto,criado_em) VALUES (?,?,?,?,?,?,?,?)');
                 try {
-                    $st->execute([$nome,$dados['cpf'],$dados['telefone'],$dados['empresa'],$dados['matricula'],$file,now()]);
+                    $st->execute([$nome,$dados['cpf'],$dados['telefone'],$dados['empresa'],$dados['matricula'],$dados['tipo_acesso'],$file,now()]);
                 } catch (PDOException $e) {
                     if (str_contains($e->getMessage(),'UNIQUE constraint failed: pessoas.cpf')) throw new RuntimeException('CPF já cadastrado.');
                     throw $e;
@@ -43,9 +69,9 @@
                     $result=runPython(['validar',PHOTO_DIR.'/'.$newfile]);
                     if(!($result['ok']??false))throw new RuntimeException((string)($result['erro']??'Foto sem rosto unico.'));
                 }
-                $st=db()->prepare('UPDATE pessoas SET nome=?,cpf=?,telefone=?,empresa=?,matricula=?,ativo=?,foto=? WHERE id=?');
+                $st=db()->prepare('UPDATE pessoas SET nome=?,cpf=?,telefone=?,empresa=?,matricula=?,tipo_acesso=?,ativo=?,foto=? WHERE id=?');
                 try {
-                    $st->execute([$nome,$dados['cpf'],$dados['telefone'],$dados['empresa'],$dados['matricula'],$ativo,$newfile??$current['foto'],$id]);
+                    $st->execute([$nome,$dados['cpf'],$dados['telefone'],$dados['empresa'],$dados['matricula'],$dados['tipo_acesso'],$ativo,$newfile??$current['foto'],$id]);
                 } catch (PDOException $e) {
                     if (str_contains($e->getMessage(),'UNIQUE constraint failed: pessoas.cpf')) throw new RuntimeException('CPF já cadastrado.');
                     throw $e;

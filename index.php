@@ -17,8 +17,9 @@ catch(Throwable $e) {
 }
 $pagina=(string)($_GET['pagina']??'terminal');
 if(!in_array($pagina,['terminal','cadastro','editar','movimentacoes'],true))$pagina='terminal';
+// Compatibilidade com o link antigo: ambos abrem a tela unificada.
+if($pagina==='editar')$pagina='cadastro';
 if(isset($_GET['foto'])) {
-    // Restricted to authenticated session; access control for demo only
     $name=(string)$_GET['foto'];
     if(!preg_match('/^[a-f0-9]{32}\.jpg$/D',$name)) {
         http_response_code(404);
@@ -37,7 +38,6 @@ if(isset($_GET['foto'])) {
     readfile($p);
     exit;
 }
-// Educational prototype: separate terminal password from admin password.
 function loggedAdmin():bool {
     return !empty($_SESSION['admin']);
 }
@@ -51,8 +51,29 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
 }
 $setup=!is_file($adminHashFile)||!is_file($terminalHashFile);
 $authorized=$pagina==='terminal'?loggedTerminal():loggedAdmin();
-$cadastros=$pagina==='editar'&&loggedAdmin()?db()->query('SELECT id,nome,cpf,telefone,empresa,matricula,ativo,foto FROM pessoas ORDER BY nome COLLATE NOCASE')->fetchAll(PDO::FETCH_ASSOC):[];
-$pessoas=$pagina==='movimentacoes'&&loggedAdmin()?db()->query('SELECT pr.criado_em,pr.tipo,p.nome,p.empresa,pr.foto_captura FROM presencas pr JOIN pessoas p ON p.id=pr.pessoa_id ORDER BY pr.id DESC LIMIT 100')->fetchAll(PDO::FETCH_ASSOC):[];
+$cadastros=$pagina==='cadastro'&&loggedAdmin()?db()->query('SELECT id,nome,cpf,telefone,empresa,matricula,ativo,foto,criado_em,tipo_acesso FROM pessoas ORDER BY nome COLLATE NOCASE')->fetchAll(PDO::FETCH_ASSOC):[];
+
+$filtroInicio='';$filtroFim='';$filtroBusca='';$filtroEmpresa='';$filtroAcesso='';$filtroMov='';$ordenacao='data';$direcao='desc';$pessoas=[];
+if($pagina==='movimentacoes' && loggedAdmin()) {
+    $filtroInicio=(string)($_GET['data_inicio']??'');
+    $filtroFim=(string)($_GET['data_fim']??'');
+    if(!preg_match('/^\d{4}-\d{2}-\d{2}$/',$filtroInicio))$filtroInicio='';
+    if(!preg_match('/^\d{4}-\d{2}-\d{2}$/',$filtroFim))$filtroFim='';
+    $filtroBusca=mb_substr(trim((string)($_GET['busca']??'')),0,120);
+    $filtroEmpresa=mb_substr(trim((string)($_GET['empresa']??'')),0,120);
+    $filtroAcesso=(string)($_GET['tipo_acesso']??'');
+    if(!in_array($filtroAcesso,['','Funcionario','Aluno','Professor','Visitante','Terceirizado'],true))$filtroAcesso='';
+    $filtroMov=(string)($_GET['movimento']??'');
+    if(!in_array($filtroMov,['','ENTRADA','SAIDA'],true))$filtroMov='';
+    $ordenacao=(string)($_GET['ordenar']??'data');
+    if(!in_array($ordenacao,['data','nome','tipo'],true))$ordenacao='data';
+    $direcao=(string)($_GET['direcao']??'desc');
+    if(!in_array($direcao,['asc','desc'],true))$direcao='desc';
+    // Formar pares usando TODOS os eventos da pessoa no período; o filtro ENTRADA/SAIDA
+    // é aplicado depois, para não separar entradas de suas saídas.
+    require __DIR__.'/api/movimentacoes_pares.php';
+}
+
 ?>
 <!doctype html>
 <html lang="pt-BR">
@@ -70,9 +91,9 @@ $pessoas=$pagina==='movimentacoes'&&loggedAdmin()?db()->query('SELECT pr.criado_
 <?php if(!$setup&&$authorized&&$pagina!=='terminal'):?>
 <nav class="nav">
 <a href="?pagina=cadastro">Cadastro</a>
-<a href="?pagina=editar">Editar cadastros</a>
+
 <a href="?pagina=movimentacoes">Movimentações</a>
-<a href="?pagina=terminal">Terminal</a>
+
 </nav>
 <?php endif;?>
 <?php
@@ -85,8 +106,7 @@ if ($setup) {
 }
 ?>
 
-<p id="error" class="msg" role="alert">
-</p>
+<p id="error" class="msg" role="alert"></p>
 <?php require __DIR__.'/paginas/confirmacao.php'; ?>
 </main>
 <script>
@@ -99,6 +119,7 @@ const persons=<?=json_encode($cadastros,JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|
 <script src="/portaria/assets/js/validacoes.js" defer></script>
 <script src="/portaria/assets/js/editar.js" defer></script>
 <script src="/portaria/assets/js/cadastro.js" defer></script>
+<script src="/portaria/assets/js/movimentacoes.js" defer></script>
 <script>
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('/portaria/sw.js').catch(console.warn));

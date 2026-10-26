@@ -1,0 +1,26 @@
+PORTARIA FACIAL — ETAPA 1: CADASTRO UNIFICADO
+
+Inclui:
+- Cadastro e edição na mesma tela, com lista pesquisável, filtros e ordenação.
+- Novo cadastro, Limpar (somente campos), Cancelar (com confirmação para voltar à lista).
+- Matrícula/Código retirado do formulário; coluna mantida no SQLite por compatibilidade.
+- CPF existente ativo: alerta CLIENTE JA EXISTE; cadastro não duplicado.
+- CPF existente inativo: pergunta se deseja reativar o mesmo cadastro.
+- Edição, inativação e exclusão preservadas.
+
+IMPORTANTE:
+- Reativar faz apenas ativo=1 no cadastro existente: não muda nome, CPF, telefone, empresa nem foto. Para corrigir esses dados, use Editar.
+- A regra de excluir pares de entrada/saída ainda NÃO foi alterada. Será a próxima etapa.
+- Use o backup já realizado e teste antes de usar com dados reais.
+
+INSTALAÇÃO (depois de transferir ZIP para /var/www/html/portaria):
+cd /var/www/html/portaria
+unzip -o portaria_cadastro_unificado_etapa1.zip
+php -l index.php
+php -l api/pessoas.php
+php -l paginas/cadastro.php
+
+Acesse https://portaria.local/portaria/?pagina=cadastro
+O endereço antigo ?pagina=editar também abre a tela unificada.
+Não substitui o banco SQLite, o config.php, o motor facial, nem a tela de movimentações.
+Atenção: após publicar no GitHub, confira que nenhum banco, fotos ou credenciais foram incluídos.

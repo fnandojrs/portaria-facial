@@ -1,0 +1,23 @@
+PORTARIA FACIAL - ETAPA 3 - EXPORTACOES PDF E EXCEL (XLSX)
+
+Base: Etapa 2 aprovada - movimentacoes por pares.
+
+Arquivos inclusos:
+  api/movimentacoes_pares.php  (adiciona chamada do exportador)
+  api/exportacoes.php         (novo: gera PDF e XLSX no PHP)
+  paginas/movimentacoes.php   (botoes PDF e Excel)
+
+Mantem os filtros, ordenacao, exclusao de pares e o CSV anteriores.
+Ambos os arquivos exportam TODOS os pares filtrados (na tela aparecem 500).
+XLSX e' formato Excel moderno e nativo. Nao necessita instalar extensao zip nem bibliotecas externas.
+
+INSTALACAO: antes faca backup da versao atual. No Debian, copie o zip para /var/www/html/portaria e rode:
+  cd /var/www/html/portaria
+  unzip -o portaria_exportacoes_etapa3.zip
+  chmod 644 api/movimentacoes_pares.php api/exportacoes.php paginas/movimentacoes.php
+  php -l api/movimentacoes_pares.php
+  php -l api/exportacoes.php
+  php -l paginas/movimentacoes.php
+  # Atualize a pagina com Ctrl+F5
+
+OBS: Quando exportar, use o botao de exportacao escolhido dentro do formulario de filtros.

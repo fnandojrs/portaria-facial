@@ -5,6 +5,14 @@
 <section class="card">
 <label>Pesquisar nome, CPF ou telefone</label>
 <input id="searchPerson" type="search" placeholder="Digite para pesquisar">
+<div class="filter-grid">
+<div><label for="filterEmpresa">Empresa</label><select id="filterEmpresa"><option value="">Todas</option></select></div>
+<div><label for="filterAcesso">Tipo de acesso</label><select id="filterAcesso"><option value="">Todos</option><option value="Funcionario">Funcionário</option><option value="Aluno">Aluno</option><option value="Professor">Professor</option><option value="Visitante">Visitante</option><option value="Terceirizado">Terceirizado</option></select></div>
+<div><label for="filterAtivo">Situação</label><select id="filterAtivo"><option value="">Todos</option><option value="1">Ativos</option><option value="0">Inativos</option></select></div>
+<div><label for="orderPessoas">Ordenar por</label><select id="orderPessoas"><option value="nome">Nome</option><option value="criado_em">Data do cadastro</option><option value="id">Código</option></select></div>
+<div><label for="dirPessoas">Ordem</label><select id="dirPessoas"><option value="asc">Crescente</option><option value="desc">Decrescente</option></select></div>
+</div>
+<p id="countPeople" class="small"></p>
 <div id="peopleList">
 </div>
 </section>
@@ -21,6 +29,15 @@
 <input name="telefone" id="personPhone" class="telefone-input" inputmode="tel" maxlength="15" required>
 <label>Empresa *</label>
 <input name="empresa" id="personCompany" maxlength="120" required>
+<label for="tipo_acesso">Tipo de Acesso *</label>
+<select id="personType" name="tipo_acesso" required>
+<option value="">Selecione...</option>
+<option value="Funcionario">Funcionário</option>
+<option value="Aluno">Aluno</option>
+<option value="Professor">Professor</option>
+<option value="Visitante">Visitante</option>
+<option value="Terceirizado">Terceirizado</option>
+</select>
 <label>Matrícula / Código (opcional)</label>
 <input name="matricula" id="personMatricula" maxlength="40">
 <label>
