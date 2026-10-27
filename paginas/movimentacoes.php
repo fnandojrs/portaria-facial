@@ -31,7 +31,7 @@
 <tbody>
 <?php foreach($pessoas as $row):?>
 <tr>
-<td><input type="radio" name="par_selecionado" class="selecionar-par" aria-label="Selecionar movimentação de <?=h($row['nome'])?>" data-entrada="<?= (int)($row['entrada_id']??0) ?>" data-saida="<?= (int)($row['saida_id']??0) ?>" data-pessoa="<?=h($row['nome'])?>" data-data="<?=h($row['data'])?>"></td>
+<td><input type="checkbox" name="par_selecionado" class="selecionar-par" aria-label="Selecionar movimentação de <?=h($row['nome'])?>" data-entrada="<?= (int)($row['entrada_id']??0) ?>" data-saida="<?= (int)($row['saida_id']??0) ?>" data-pessoa="<?=h($row['nome'])?>" data-data="<?=h($row['data'])?>"></td>
 <td><?=h(date('d/m/Y',strtotime($row['data'])))?></td>
 <td><?=h($row['nome'])?><br><span class="small"><?=h($row['empresa'])?></span></td>
 <td><?=h($row['tipo_acesso'])?></td>
